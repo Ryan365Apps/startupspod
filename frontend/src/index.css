@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+mark {
+  @apply bg-yellow-200 px-0.5 rounded;
+}
+
+.transcript-segment:hover {
+  @apply bg-gray-100;
+}
