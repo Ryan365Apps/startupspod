@@ -1,4 +1,17 @@
-import { YoutubeTranscript } from 'youtube-transcript';
+import { Innertube } from 'youtubei.js';
+
+let innertube = null;
+
+async function getInnertube() {
+  if (!innertube) {
+    innertube = await Innertube.create({
+      lang: 'en',
+      location: 'US',
+      retrieve_player: true,
+    });
+  }
+  return innertube;
+}
 
 /**
  * Fetch transcript for a YouTube video
@@ -7,20 +20,51 @@ import { YoutubeTranscript } from 'youtube-transcript';
  */
 export async function fetchTranscript(videoId) {
   try {
-    const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId, {
-      lang: 'en',
-    });
+    const yt = await getInnertube();
+    const info = await yt.getInfo(videoId);
 
-    if (!transcriptItems || transcriptItems.length === 0) {
-      throw new Error('No transcript available for this video');
+    // Get captions from the video info
+    const captionTracks = info.captions?.caption_tracks;
+
+    if (!captionTracks || captionTracks.length === 0) {
+      throw new Error('No captions available for this video');
+    }
+
+    // Prefer English, fallback to first available
+    let captionTrack = captionTracks.find(
+      (track) => track.language_code === 'en' || track.language_code?.startsWith('en')
+    );
+    if (!captionTrack) {
+      captionTrack = captionTracks[0];
+    }
+
+    // Fetch the caption content (in XML format by default, or json3)
+    const captionUrl = captionTrack.base_url + '&fmt=json3';
+    const response = await fetch(captionUrl);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch captions: ${response.status}`);
+    }
+
+    const captionData = await response.json();
+
+    if (!captionData.events || captionData.events.length === 0) {
+      throw new Error('No caption events found');
     }
 
     // Convert to our format with timestamps
-    const segments = transcriptItems.map((item) => ({
-      text: item.text,
-      start: item.offset / 1000, // Convert to seconds
-      duration: item.duration / 1000,
-    }));
+    const segments = captionData.events
+      .filter((event) => event.segs && event.segs.length > 0)
+      .map((event) => ({
+        text: event.segs.map((seg) => seg.utf8).join('').trim(),
+        start: (event.tStartMs || 0) / 1000,
+        duration: (event.dDurationMs || 0) / 1000,
+      }))
+      .filter((seg) => seg.text); // Remove empty segments
+
+    if (segments.length === 0) {
+      throw new Error('No transcript segments found for this video');
+    }
 
     // Combine all text for full-text search
     const content = segments.map((s) => s.text).join(' ');
@@ -30,22 +74,6 @@ export async function fetchTranscript(videoId) {
       segments,
     };
   } catch (error) {
-    // Try without language specification as fallback
-    if (error.message?.includes('lang')) {
-      try {
-        const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
-        const segments = transcriptItems.map((item) => ({
-          text: item.text,
-          start: item.offset / 1000,
-          duration: item.duration / 1000,
-        }));
-        const content = segments.map((s) => s.text).join(' ');
-        return { content, segments };
-      } catch (fallbackError) {
-        console.error('Fallback transcript fetch failed:', fallbackError);
-        throw fallbackError;
-      }
-    }
     console.error('Error fetching transcript:', error);
     throw error;
   }

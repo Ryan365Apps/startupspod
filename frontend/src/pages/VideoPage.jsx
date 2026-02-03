@@ -75,15 +75,20 @@ function VideoPage() {
             <div className="bg-white rounded-xl shadow-sm border p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Transcript</h2>
-                {!transcript && (
-                  <button
-                    onClick={handleScrapeTranscript}
-                    disabled={scraping}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {scraping ? 'Fetching...' : 'Fetch Transcript'}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {transcript && (
+                    <CopyTranscriptButton transcript={transcript} />
+                  )}
+                  {!transcript && (
+                    <button
+                      onClick={handleScrapeTranscript}
+                      disabled={scraping}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {scraping ? 'Fetching...' : 'Fetch Transcript'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {loading || scraping ? (
@@ -107,15 +112,12 @@ function VideoPage() {
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
-                  <div className="max-h-[600px] overflow-y-auto space-y-1">
-                    {filteredSegments?.map((segment, index) => (
-                      <TranscriptSegment
-                        key={index}
-                        segment={segment}
-                        videoId={videoId}
-                        searchQuery={searchQuery}
-                      />
-                    ))}
+                  <div className="max-h-[600px] overflow-y-auto">
+                    <TranscriptContent
+                      segments={transcript?.segments}
+                      videoId={videoId}
+                      searchQuery={searchQuery}
+                    />
                     {searchQuery && filteredSegments?.length === 0 && (
                       <p className="text-gray-500 text-center py-4">No matches found</p>
                     )}
@@ -155,31 +157,115 @@ function VideoPage() {
   );
 }
 
-function TranscriptSegment({ segment, videoId, searchQuery }) {
-  const minutes = Math.floor(segment.start / 60);
-  const seconds = Math.floor(segment.start % 60);
-  const timestamp = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  const youtubeLink = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(segment.start)}`;
+function CopyTranscriptButton({ transcript }) {
+  const [copied, setCopied] = useState(false);
 
-  let displayText = segment.text;
+  const handleCopy = async () => {
+    const fullText = transcript.segments.map((s) => s.text).join(' ');
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 border rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+    >
+      {copied ? (
+        <>
+          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Copied!
+        </>
+      ) : (
+        <>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  );
+}
+
+function TranscriptContent({ segments, videoId, searchQuery }) {
+  if (!segments || segments.length === 0) return null;
+
+  // Group segments into paragraphs (roughly every 30 seconds or at sentence endings)
+  const paragraphs = [];
+  let currentParagraph = { segments: [], startTime: 0 };
+
+  segments.forEach((segment, index) => {
+    if (currentParagraph.segments.length === 0) {
+      currentParagraph.startTime = segment.start;
+    }
+    currentParagraph.segments.push(segment);
+
+    const timeSinceStart = segment.start - currentParagraph.startTime;
+    const endsWithPunctuation = /[.!?]$/.test(segment.text.trim());
+    const isLongEnough = timeSinceStart >= 25;
+
+    // Start new paragraph after ~30s or at sentence end after 15s
+    if ((endsWithPunctuation && timeSinceStart >= 15) || timeSinceStart >= 40 || index === segments.length - 1) {
+      paragraphs.push({ ...currentParagraph });
+      currentParagraph = { segments: [], startTime: 0 };
+    }
+  });
+
+  return (
+    <div className="prose prose-sm max-w-none space-y-4">
+      {paragraphs.map((paragraph, pIndex) => (
+        <TranscriptParagraph
+          key={pIndex}
+          paragraph={paragraph}
+          videoId={videoId}
+          searchQuery={searchQuery}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TranscriptParagraph({ paragraph, videoId, searchQuery }) {
+  const formatTimestamp = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const timestamp = formatTimestamp(paragraph.startTime);
+  const youtubeLink = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(paragraph.startTime)}`;
+
+  // Combine all segment text
+  let fullText = paragraph.segments.map((s) => s.text).join(' ');
+
+  // Highlight search matches
   if (searchQuery) {
     const regex = new RegExp(`(${searchQuery})`, 'gi');
-    displayText = segment.text.replace(regex, '<mark>$1</mark>');
+    fullText = fullText.replace(regex, '<mark>$1</mark>');
   }
 
   return (
-    <div className="transcript-segment flex gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+    <div className="group relative pl-12 py-2 hover:bg-gray-50 rounded-lg transition-colors">
       <a
         href={youtubeLink}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-indigo-600 hover:text-indigo-700 text-sm font-mono whitespace-nowrap"
+        className="absolute left-0 top-2 text-indigo-600 hover:text-indigo-700 text-xs font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+        title="Jump to this point in video"
       >
         {timestamp}
       </a>
       <p
-        className="text-gray-700 text-sm"
-        dangerouslySetInnerHTML={{ __html: displayText }}
+        className="text-gray-700 leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: fullText }}
       />
     </div>
   );

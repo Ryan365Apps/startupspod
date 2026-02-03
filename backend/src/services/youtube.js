@@ -19,11 +19,17 @@ async function getInnertube() {
 export async function getChannelByHandle(handle) {
   const yt = await getInnertube();
 
-  // Remove @ if present
-  const cleanHandle = handle.startsWith('@') ? handle.slice(1) : handle;
+  // Ensure handle has @ prefix for URL resolution
+  const handleWithAt = handle.startsWith('@') ? handle : `@${handle}`;
 
   try {
-    const channel = await yt.getChannel(cleanHandle);
+    // Resolve the handle URL to get the channel
+    const resolved = await yt.resolveURL(`https://www.youtube.com/${handleWithAt}`);
+    if (!resolved?.payload?.browseId) {
+      throw new Error(`Could not resolve channel handle: ${handle}`);
+    }
+
+    const channel = await yt.getChannel(resolved.payload.browseId);
     return {
       id: channel.metadata.external_id,
       name: channel.metadata.title,
@@ -44,7 +50,19 @@ export async function getChannelVideos(channelIdOrHandle, maxResults = 50) {
   const yt = await getInnertube();
 
   try {
-    const channel = await yt.getChannel(channelIdOrHandle);
+    let channelId = channelIdOrHandle;
+
+    // If it's a handle (starts with @ or doesn't start with UC), resolve it first
+    if (channelIdOrHandle.startsWith('@') || !channelIdOrHandle.startsWith('UC')) {
+      const handleWithAt = channelIdOrHandle.startsWith('@') ? channelIdOrHandle : `@${channelIdOrHandle}`;
+      const resolved = await yt.resolveURL(`https://www.youtube.com/${handleWithAt}`);
+      if (!resolved?.payload?.browseId) {
+        throw new Error(`Could not resolve channel: ${channelIdOrHandle}`);
+      }
+      channelId = resolved.payload.browseId;
+    }
+
+    const channel = await yt.getChannel(channelId);
     let videos = [];
 
     // Get videos tab
@@ -60,7 +78,7 @@ export async function getChannelVideos(channelIdOrHandle, maxResults = 50) {
         publishedAt: video.published?.text || '',
         duration: video.duration?.text || '',
         viewCount: parseViewCount(video.view_count?.text || video.short_view_count?.text || '0'),
-        channelId: channelIdOrHandle,
+        channelId: channelId,
       }));
 
       videos = videos.concat(newVideos);

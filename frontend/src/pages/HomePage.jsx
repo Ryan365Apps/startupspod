@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useVideos, useApi } from '../hooks/useApi';
+import { useVideos } from '../hooks/useApi';
 
 function HomePage() {
   const { videos, fetchVideos, fetchChannel, loading, error } = useVideos();
-  const { post, loading: fetchingTranscripts } = useApi();
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
 
@@ -18,22 +17,6 @@ function HomePage() {
     try {
       const result = await fetchChannel('@startupspod', 50);
       setSyncStatus(`Synced ${result.saved} videos from ${result.channel.name}`);
-      await fetchVideos();
-    } catch (err) {
-      setSyncStatus(`Error: ${err.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleFetchAllTranscripts = async () => {
-    setSyncing(true);
-    setSyncStatus('Fetching transcripts (this may take a while)...');
-    try {
-      const result = await post('/transcripts/fetch-all', { limit: 20, delay: 2000 });
-      setSyncStatus(
-        `Fetched ${result.succeeded} transcripts. ${result.failed} failed.`
-      );
       await fetchVideos();
     } catch (err) {
       setSyncStatus(`Error: ${err.message}`);
@@ -61,13 +44,6 @@ function HomePage() {
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {syncing ? 'Syncing...' : 'Sync Videos from Channel'}
-          </button>
-          <button
-            onClick={handleFetchAllTranscripts}
-            disabled={syncing || videos.length === 0}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {fetchingTranscripts ? 'Fetching...' : 'Fetch All Transcripts'}
           </button>
         </div>
         {syncStatus && (

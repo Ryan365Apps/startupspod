@@ -73,13 +73,9 @@ npm run dev:frontend
 - `GET /api/search?q=query` - Search across all transcripts
 - `GET /api/search/themes` - Get all themes across all videos
 
-## About the Glasp Plugin
 
-This app works independently of the Glasp plugin by using the `youtube-transcript` library to fetch transcripts directly from YouTube's API. However, if a video doesn't have auto-generated captions, you could:
+This app works by using the `youtube-transcript` library to fetch transcripts directly from YouTube's API. 
 
-1. Use Glasp to manually create a transcript
-2. Copy the transcript text
-3. Store it using the API (future enhancement)
 
 ## License
 
